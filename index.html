@@ -105,7 +105,7 @@ function initGis(){
     callback: r => {
       if (r.error){ pendingReject && pendingReject(new Error('로그인 실패: ' + r.error)); return; }
       accessToken = r.access_token; tokenExpiry = Date.now() + (Number(r.expires_in || 3600) - 60) * 1000;
-      sessionStorage.setItem('cd_tok', JSON.stringify({t: accessToken, e: tokenExpiry}));
+      localStorage.setItem('cd_tok', JSON.stringify({t: accessToken, e: tokenExpiry})); localStorage.setItem('cd_flag', '1');
       pendingResolve && pendingResolve(accessToken);
     },
     error_callback: e => pendingReject && pendingReject(new Error(e && e.type === 'popup_closed' ? '로그인 창이 닫혔어요.' : '로그인 중 오류가 났어요.'))
@@ -128,7 +128,7 @@ async function api(url){
   if (!t) throw Object.assign(new Error('로그인이 만료됐어요. 다시 로그인해 주세요.'), {auth: true});
   let r = await fetch(url, {headers: {Authorization: 'Bearer ' + t}});
   if (r.status === 401){
-    accessToken = null; sessionStorage.removeItem('cd_tok');
+    accessToken = null; localStorage.removeItem('cd_tok');
     throw Object.assign(new Error('로그인이 만료됐어요. 다시 로그인해 주세요.'), {auth: true});
   }
   if (!r.ok){
@@ -260,7 +260,7 @@ function renderTx(tx){
   const rows = txFilter === '전체' ? tx : tx.filter(t => t['카드'] === txFilter);
   const total = rows.reduce((s, t) => s + (num(t['금액']) || 0), 0);
   const counted = rows.filter(t => yes(t['실적 인정(O/X)'])).reduce((s, t) => s + (num(t['금액']) || 0), 0);
-  return `<div class="panel"><details id="txd" ${sessionStorage.getItem('cd_txopen') ? 'open' : ''}><summary>내역 (${rows.length}건)</summary>
+  return `<div class="panel"><details id="txd" ${localStorage.getItem('cd_txopen') ? 'open' : ''}><summary>내역 (${rows.length}건)</summary>
     <div class="filters">${cards.map(c => `<button data-c="${esc(c)}" class="${c === txFilter ? 'on' : ''}">${esc(c)}</button>`).join('')}</div>
     <div class="muted">합계 ${total.toLocaleString('ko-KR')} · 실적 인정 ${counted.toLocaleString('ko-KR')} · <span class="warn">빨간 행</span> = 실적 제외</div>
     <div class="tbl"><table><thead><tr><th>날짜</th><th>카드</th><th>항목</th><th class="n">금액</th><th>실적</th><th class="hide-m">제외 사유</th><th class="n">예상 혜택</th><th class="hide-m">메모</th></tr></thead><tbody>
@@ -274,7 +274,7 @@ function render(f, d){
   app.innerHTML = `<div class="muted" style="margin:0 2px 10px">${esc(f.name)} · 시트 수정 ${new Date(f.modifiedTime).toLocaleString('ko-KR')}</div>` +
     renderSummary(d.sum) + renderPicking(d.sum, d.tx) + renderCards(d.sum, d.ben, d.tx) + renderTx(d.tx);
   const det = $('#txd');
-  det.addEventListener('toggle', () => det.open ? sessionStorage.setItem('cd_txopen', 1) : sessionStorage.removeItem('cd_txopen'));
+  det.addEventListener('toggle', () => det.open ? localStorage.setItem('cd_txopen', 1) : localStorage.removeItem('cd_txopen'));
   det.querySelectorAll('.filters button').forEach(b => b.onclick = () => { txFilter = b.dataset.c; render(f, d); $('#txd').open = true; });
 }
 
@@ -315,7 +315,7 @@ $('#btnRefresh').onclick = async () => {
 };
 $('#btnLogout').onclick = () => {
   if (accessToken) google.accounts.oauth2.revoke(accessToken, () => {});
-  accessToken = null; tokenExpiry = 0; cache = {}; sessionStorage.removeItem('cd_tok');
+  accessToken = null; tokenExpiry = 0; cache = {}; localStorage.removeItem('cd_tok'); localStorage.removeItem('cd_flag');
   showLogin('로그아웃했어요.');
 };
 
@@ -325,7 +325,9 @@ window.onload = () => {
   s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
   s.onload = () => {
     initGis();
-    try { const t = JSON.parse(sessionStorage.getItem('cd_tok') || 'null'); if (t && Date.now() < t.e){ accessToken = t.t; tokenExpiry = t.e; return start(); } } catch(_){}
+    try { const t = JSON.parse(localStorage.getItem('cd_tok') || 'null'); if (t && Date.now() < t.e){ accessToken = t.t; tokenExpiry = t.e; return start(); } } catch(_){}
+    // 이전에 로그인했으면 창 없이 조용히 토큰을 다시 받아 로그인 상태를 유지해요
+    if (localStorage.getItem('cd_flag') === '1'){ getToken(false).then(start).catch(() => showLogin()); return; }
     showLogin();
   };
   s.onerror = () => showLogin('구글 로그인 스크립트를 불러오지 못했어요. 네트워크를 확인해 주세요.');
