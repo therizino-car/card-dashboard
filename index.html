@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>카드 실적·혜택 대시보드</title>
+<style>
+  :root{--bg:#f4f6fa;--card:#fff;--ink:#1d2433;--sub:#667085;--line:#e4e7ec;--pri:#1f3a5f;--ok:#12805c;--okbg:#e3f5ec;--mid:#b54708;--midbg:#fff6e0;--bad:#c4320a;--badbg:#ffe9e4;--na:#475467;--nabg:#eef0f3}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.5}
+  header{position:sticky;top:0;z-index:5;background:var(--pri);color:#fff;padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  header h1{font-size:17px;margin:0;flex:1 1 auto}
+  header select,header button{font:inherit;font-size:14px;border-radius:8px;border:0;padding:6px 10px}
+  header button{background:#fff;color:var(--pri);cursor:pointer}
+  header button.ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.6)}
+  main{max-width:960px;margin:0 auto;padding:14px}
+  .panel{background:var(--card);border-radius:14px;padding:14px;margin-bottom:14px;box-shadow:0 1px 3px rgba(16,24,40,.08)}
+  h2{font-size:16px;margin:0 0 10px}
+  h3{font-size:15px;margin:14px 0 6px}
+  .muted{color:var(--sub);font-size:13px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{background:#f8f9fb;font-weight:600;color:#344054;white-space:nowrap}
+  td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .tbl{overflow-x:auto}
+  .badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;font-weight:600;white-space:nowrap}
+  .g-ok{background:var(--okbg);color:var(--ok)} .g-mid{background:var(--midbg);color:var(--mid)} .g-bad{background:var(--badbg);color:var(--bad)} .g-na{background:var(--nabg);color:var(--na)}
+  .grp{border-left:4px solid var(--line);padding-left:10px;margin:12px 0}
+  .grp.ok{border-color:var(--ok)} .grp.mid{border-color:#f79009} .grp.bad{border-color:var(--bad)} .grp.na{border-color:#98a2b3}
+  .bar{height:10px;background:#eaecf0;border-radius:6px;overflow:hidden;margin:6px 0 2px;position:relative}
+  .bar > i{display:block;height:100%;background:var(--pri)}
+  .bar.full > i{background:var(--ok)}
+  .kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:6px 0}
+  .kv div{background:#f8f9fb;border-radius:10px;padding:8px}
+  .kv b{display:block;font-size:16px;font-variant-numeric:tabular-nums}
+  .kv span{font-size:12px;color:var(--sub)}
+  .note{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px 10px;font-size:13px;margin-top:8px;white-space:pre-wrap}
+  .warn{color:var(--bad);font-weight:600}
+  tr.ex td{background:#fff1ee}
+  details summary{cursor:pointer;font-weight:600;font-size:16px}
+  .filters{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+  .filters button{font:inherit;font-size:13px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:4px 10px;cursor:pointer}
+  .filters button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+  .center{text-align:center;padding:40px 14px}
+  .center button{font:inherit;font-size:16px;padding:10px 18px;border-radius:10px;border:0;background:var(--pri);color:#fff;cursor:pointer}
+  .err{background:var(--badbg);color:var(--bad);border-radius:10px;padding:10px;margin-bottom:14px}
+  ol li{margin-bottom:6px}
+  code{background:#f2f4f7;padding:1px 5px;border-radius:5px;font-size:13px;word-break:break-all}
+  @media (max-width:600px){th,td{padding:6px 4px;font-size:13px} .hide-m{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>💳 카드 실적·혜택</h1>
+  <select id="month" hidden aria-label="월 선택"></select>
+  <button id="btnRefresh" hidden>새로고침</button>
+  <button id="btnLogout" class="ghost" hidden>로그아웃</button>
+</header>
+<main id="app"><div class="center muted">불러오는 중…</div></main>
+
+<script>
+/* ===== 설정 ===== */
+const CLIENT_ID = '';                                   // Google Cloud OAuth 웹 클라이언트 ID (예: 1234-abc.apps.googleusercontent.com)
+const FOLDER_ID = '1Dyx8iMQSMuL3ghdb3uAOb0-7PdIh_z81';  // 드라이브 '카드 실적·혜택' 폴더 ID
+const FILE_PREFIX = '카드 실적·혜택 ';                   // 월별 파일 이름: '카드 실적·혜택 YYYY-MM'
+const SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets.readonly';
+/* ================= */
+
+const $ = s => document.querySelector(s);
+const app = $('#app');
+let tokenClient = null, accessToken = null, tokenExpiry = 0, pendingResolve = null, pendingReject = null;
+let files = [], cache = {}, txFilter = '전체';
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = v => { if (v === '' || v == null) return null; const n = Number(String(v).replace(/[,원P점\s]/g, '')); return isNaN(n) ? null : n; };
+const fmt = v => { const n = num(v); return n == null ? (v === '' || v == null ? '미입력' : esc(v)) : n.toLocaleString('ko-KR'); };
+
+function showSetup(){
+  app.innerHTML = `<div class="panel"><h2>설정이 필요해요</h2>
+  <p>이 페이지는 구글 로그인으로 본인 드라이브의 시트를 직접 읽어요. 먼저 OAuth 클라이언트 ID를 만들어 <code>index.html</code> 맨 위 <code>CLIENT_ID</code>에 넣어 주세요.</p>
+  <ol>
+   <li><a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud 콘솔</a>에서 프로젝트를 하나 만들어요.</li>
+   <li><b>API 및 서비스 → 라이브러리</b>에서 <b>Google Drive API</b>와 <b>Google Sheets API</b>를 각각 <b>사용 설정</b>해요.</li>
+   <li><b>OAuth 동의 화면</b>(Google 인증 플랫폼): 사용자 유형 <b>외부</b>, 앱 이름·이메일 입력 → <b>데이터 액세스</b>에 <code>drive.readonly</code>, <code>spreadsheets.readonly</code> 추가 → <b>대상(테스트 사용자)</b>에 본인 구글 계정 추가. 게시 상태는 <b>테스트</b>로 두면 돼요.</li>
+   <li><b>사용자 인증 정보 → 사용자 인증 정보 만들기 → OAuth 클라이언트 ID</b> → 유형 <b>웹 애플리케이션</b>.</li>
+   <li><b>승인된 JavaScript 원본</b>에 <code>${esc(location.origin)}</code> 를 추가하고 만들기.</li>
+   <li>발급된 클라이언트 ID를 <code>index.html</code>의 <code>CLIENT_ID = ''</code> 안에 넣어 커밋하면 끝이에요.</li>
+  </ol>
+  <p class="muted">클라이언트 ID는 비밀값이 아니라서 공개 저장소에 넣어도 괜찮아요. 데이터는 로그인한 본인 계정 권한으로만 읽혀요.</p></div>`;
+}
+
+function showLogin(msg){
+  $('#month').hidden = $('#btnRefresh').hidden = $('#btnLogout').hidden = true;
+  app.innerHTML = (msg ? `<div class="err">${esc(msg)}</div>` : '') +
+    `<div class="panel center"><p>본인 구글 계정으로 로그인하면 드라이브의 월별 시트를 불러와요.</p>
+     <button id="btnLogin">Google 계정으로 로그인</button>
+     <p class="muted">읽기 전용 권한(드라이브·시트)만 요청해요.</p></div>`;
+  $('#btnLogin').onclick = () => getToken(true).then(start).catch(e => showLogin(e.message));
+}
+
+function initGis(){
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID, scope: SCOPES,
+    callback: r => {
+      if (r.error){ pendingReject && pendingReject(new Error('로그인 실패: ' + r.error)); return; }
+      accessToken = r.access_token; tokenExpiry = Date.now() + (Number(r.expires_in || 3600) - 60) * 1000;
+      sessionStorage.setItem('cd_tok', JSON.stringify({t: accessToken, e: tokenExpiry}));
+      pendingResolve && pendingResolve(accessToken);
+    },
+    error_callback: e => pendingReject && pendingReject(new Error(e && e.type === 'popup_closed' ? '로그인 창이 닫혔어요.' : '로그인 중 오류가 났어요.'))
+  });
+}
+
+function getToken(interactive){
+  if (accessToken && Date.now() < tokenExpiry) return Promise.resolve(accessToken);
+  return new Promise((res, rej) => {
+    pendingResolve = res; pendingReject = rej;
+    const to = interactive ? null : setTimeout(() => rej(new Error('토큰 갱신 시간 초과')), 15000);
+    pendingResolve = t => { to && clearTimeout(to); res(t); };
+    pendingReject = e => { to && clearTimeout(to); rej(e); };
+    tokenClient.requestAccessToken({prompt: interactive ? '' : 'none'});
+  });
+}
+
+async function api(url){
+  let t = await getToken(false).catch(() => null);
+  if (!t) throw Object.assign(new Error('로그인이 만료됐어요. 다시 로그인해 주세요.'), {auth: true});
+  let r = await fetch(url, {headers: {Authorization: 'Bearer ' + t}});
+  if (r.status === 401){
+    accessToken = null; sessionStorage.removeItem('cd_tok');
+    throw Object.assign(new Error('로그인이 만료됐어요. 다시 로그인해 주세요.'), {auth: true});
+  }
+  if (!r.ok){
+    let m = ''; try { m = (await r.json()).error.message; } catch(_){}
+    throw new Error(`API 오류 (${r.status}) ${m}`);
+  }
+  return r.json();
+}
+
+async function listMonths(){
+  const q = `'${FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
+  const d = await api('https://www.googleapis.com/drive/v3/files?pageSize=100&orderBy=name desc&fields=files(id,name,modifiedTime)&q=' + encodeURIComponent(q));
+  return (d.files || []).map(f => ({...f, ym: (f.name.match(/(\d{4}-\d{2})\s*$/) || [])[1]}))
+    .filter(f => f.ym && f.name.startsWith(FILE_PREFIX.trim())).sort((a, b) => b.ym.localeCompare(a.ym));
+}
+
+async function loadSheet(id){
+  const ranges = ['요약!A1:M100', '혜택!A1:F300', '내역!A1:J3000'].map(r => 'ranges=' + encodeURIComponent(r)).join('&');
+  const d = await api(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchGet?${ranges}&valueRenderOption=FORMATTED_VALUE`);
+  const toObjs = vr => { const v = vr.values || []; const h = v[0] || []; return v.slice(1).filter(r => r.some(c => c !== '')).map(r => Object.fromEntries(h.map((k, i) => [k, r[i] ?? '']))); };
+  return {sum: toObjs(d.valueRanges[0]), ben: toObjs(d.valueRanges[1]), tx: toObjs(d.valueRanges[2])};
+}
+
+const GROUPS = [
+  ['모두 충족', 'ok', 'g-ok'], ['실적 또는 혜택만 충족', 'mid', 'g-mid'], ['모두 미충족', 'bad', 'g-bad'], ['관리 안 함', 'na', 'g-na']
+];
+const badgeOf = g => (GROUPS.find(x => x[0] === g) || [g, 'na', 'g-na'])[2];
+const yes = v => String(v).trim().toUpperCase() === 'O';
+
+
+// 사용액(내역 탭 기준, 가족카드 제외)과 혜택/사용 비율(피킹율)
+// 요약의 카드명과 내역의 카드명이 같으면 그 카드 사용액. 요약에 접미사 없는 카드명만 있을 때는 '(내카드)' 행도 합산.
+// 사용액 = 내역 탭 해당 카드 합계. 단, 요약의 '이번달 예상 실적'이 더 크면(내역 미수신분이 있는 경우, 예: 가족카드) 그 값을 사용.
+// 실적 제외 결제가 있어 실적이 내역보다 작은 카드(예: KB Favorite)는 내역 합계를 그대로 써요.
+function usageOf(card, tx, r){
+  const hasSuffix = /\(.+\)$/.test(card);
+  const txSum = tx.filter(t => t['카드'] === card || (!hasSuffix && t['카드'] === card + '(내카드)')).reduce((a, t) => a + (num(t['금액']) || 0), 0);
+  const perf = r ? num(r['이번달 예상 실적']) : null;
+  return perf != null && perf > txSum ? perf : txSum;
+}
+// 혜택 상태: none(받은·한도 모두 빈칸 = 관리 안 함), missing(받은 금액이 '미입력' 등 숫자 아님), num(숫자)
+function benState(r){
+  const got = r['혜택 받은 합계'], lim = r['혜택 한도 합계'];
+  if (got === '' && lim === '') return {kind: 'none', v: null};
+  const v = num(got);
+  if (v == null) return {kind: got === '' ? 'num' : 'missing', v: got === '' ? 0 : null};
+  return {kind: 'num', v, noLimit: num(lim) == null};
+}
+function benOf(r){ const b = benState(r); return b.kind === 'num' ? b.v : null; }
+function benTxt(r, withLimit){
+  const b = benState(r);
+  if (b.kind === 'none') return '<span class="muted">관리 안 함</span>';
+  if (b.kind === 'missing') return '<span class="muted">미입력</span>';
+  if (b.noLimit) return fmt(b.v) + ' <span class="muted">(한도 없음)</span>';
+  return withLimit ? fmt(b.v) + ' / ' + fmt(r['혜택 한도 합계']) : fmt(b.v);
+}
+const pctTxt = (b, u) => (b == null || !u) ? '–' : (b / u * 100).toFixed(2) + '%';
+function renderPicking(sum, tx){
+  let tb = 0, tu = 0;
+  const rows = sum.map(r => {
+    const st = benState(r), b = benOf(r), u = usageOf(r['카드'], tx, r);
+    if (b != null){ tb += b; tu += u; }
+    return {card: r['카드'], b, u, r, st};
+  });
+  const maxP = Math.max(0.01, ...rows.map(x => x.b != null && x.u ? x.b / x.u * 100 : 0));
+  return `<div class="panel"><h2>혜택/사용 비율 (피킹율)</h2>
+    <div class="kv"><div><span>전체 혜택 합계</span><b>${fmt(tb)}</b></div><div><span>전체 사용액</span><b>${fmt(tu)}</b></div><div><span>전체 피킹율</span><b>${pctTxt(tb, tu)}</b></div></div>
+    <div class="muted" style="margin:6px 0 10px">혜택 ÷ 총 사용액(내역 탭 카드별 합계, 요약 실적이 더 크면 요약 실적). 받은 혜택이 '미입력'이거나 관리하지 않는 카드는 전체 계산에서 뺐어요.</div>
+    <div class="tbl"><table><thead><tr><th>카드</th><th class="n">받은 혜택</th><th class="n">사용액</th><th class="n">피킹율</th><th class="hide-m"></th></tr></thead><tbody>` +
+    rows.map(x => { const p = x.b != null && x.u ? x.b / x.u * 100 : 0; return `<tr><td>${esc(x.card)}</td><td class="n">${benTxt(x.r, false)}</td><td class="n">${fmt(x.u)}</td><td class="n"><b>${x.st.kind === 'missing' ? '<span class="muted">미입력</span>' : pctTxt(x.b, x.u)}</b></td><td class="hide-m" style="width:30%"><div class="bar"><i style="width:${Math.round(p / maxP * 100)}%"></i></div></td></tr>`; }).join('') +
+    `</tbody></table></div></div>`;
+}
+
+function renderSummary(sum){
+  let h = '<div class="panel"><h2>전체 요약</h2>';
+  for (const [g, cls] of GROUPS){
+    const rows = sum.filter(r => (r['상태그룹'] || '관리 안 함') === g);
+    if (!rows.length) continue;
+    h += `<div class="grp ${cls}"><h3><span class="badge ${badgeOf(g)}">${esc(g)}</span> ${rows.length}장</h3><div class="tbl"><table><thead><tr>`;
+    if (g === '관리 안 함'){
+      h += '<th>카드</th><th>비고</th></tr></thead><tbody>' + rows.map(r => `<tr><td>${esc(r['카드'])}</td><td>${esc(r['비고'])}</td></tr>`).join('');
+    } else {
+      h += '<th>카드</th><th class="n">이번달 실적</th><th class="n hide-m">목표</th><th>실적</th><th class="n">혜택(받은/최대)</th><th>혜택</th></tr></thead><tbody>';
+      h += rows.map(r => {
+        return `<tr><td>${esc(r['카드'])}</td><td class="n">${fmt(r['이번달 예상 실적'])}</td><td class="n hide-m">${fmt(r['현재 구간 목표'])}</td>
+        <td>${yes(r['실적 충족']) ? '✅ 충족' : `❌ <span class="muted">${fmt(r['다음 목표까지 부족액'])} 부족</span>`}</td>
+        <td class="n">${benTxt(r, true)}</td>
+        <td>${yes(r['혜택 충족']) ? '✅' : '❌'}</td></tr>`;
+      }).join('');
+    }
+    h += '</tbody></table></div></div>';
+  }
+  return h + '</div>';
+}
+
+function renderCards(sum, ben, tx){
+  let h = '<div class="panel"><h2>카드별 실적·혜택</h2>';
+  for (const r of sum){
+    const card = r['카드'];
+    const amt = num(r['이번달 예상 실적']) || 0;
+    const nextN = num(r['다음 목표']), curN = num(r['현재 구간 목표']);
+    const goal = nextN != null ? nextN : curN;
+    const pct = goal ? Math.min(100, Math.round(amt / goal * 100)) : 100;
+    const items = ben.filter(b => b['카드'] === card);
+    const note = r['비고'] || '';
+    h += `<div class="grp ${(GROUPS.find(x => x[0] === r['상태그룹']) || [0, 'na'])[1]}">
+      <h3>${esc(card)} <span class="badge ${badgeOf(r['상태그룹'])}">${esc(r['상태그룹'] || '관리 안 함')}</span></h3>
+      <div class="kv"><div><span>이번달 실적</span><b>${fmt(r['이번달 예상 실적'])}</b></div>
+        <div><span>현재 구간 목표</span><b>${fmt(r['현재 구간 목표'])}</b></div>
+        <div><span>다음 목표</span><b>${fmt(r['다음 목표'])}</b></div>
+        <div><span>받은 혜택</span><b>${benTxt(r, true)}</b></div>
+        <div><span>혜택/사용 비율</span><b>${benState(r).kind === 'missing' ? '미입력' : pctTxt(benOf(r), usageOf(card, tx, r))}</b></div></div>
+      <div class="bar ${yes(r['실적 충족']) && nextN == null ? 'full' : ''}"><i style="width:${pct}%"></i></div>
+      <div class="muted">전월 실적 ${fmt(r['전월 실적'])} (${esc(r['전월 구간'])}) · ${num(r['다음 목표까지 부족액']) ? '다음 목표까지 ' + fmt(r['다음 목표까지 부족액']) + ' 부족' : '목표 달성'}</div>`;
+    if (items.length){
+      h += `<div class="tbl"><table><thead><tr><th>혜택 항목</th><th class="n">받은 금액</th><th class="n">최대</th><th class="n">남은 한도</th><th class="hide-m">조건·메모</th></tr></thead><tbody>` +
+        items.map(b => `<tr><td>${esc(b['혜택 항목'])}</td><td class="n">${fmt(b['받은 금액'])}</td><td class="n">${fmt(b['최대 한도'])}</td>
+          <td class="n ${num(b['남은 한도']) === 0 ? 'warn' : ''}">${b['남은 한도'] === '' && num(b['최대 한도']) == null && b['최대 한도'] !== '' && b['최대 한도'] !== '미입력' ? '–' : fmt(b['남은 한도'])}</td><td class="hide-m muted">${esc(b['조건·메모'])}</td></tr>`).join('') +
+        '</tbody></table></div>';
+    }
+    if (note) h += `<div class="note">${esc(note).replace(/(다른 카드[^.]*권장)/g, '<span class="warn">$1</span>')}</div>`;
+    h += '</div>';
+  }
+  return h + '</div>';
+}
+
+function renderTx(tx){
+  const cards = ['전체', ...new Set(tx.map(t => t['카드']))];
+  const rows = txFilter === '전체' ? tx : tx.filter(t => t['카드'] === txFilter);
+  const total = rows.reduce((s, t) => s + (num(t['금액']) || 0), 0);
+  const counted = rows.filter(t => yes(t['실적 인정(O/X)'])).reduce((s, t) => s + (num(t['금액']) || 0), 0);
+  return `<div class="panel"><details id="txd" ${sessionStorage.getItem('cd_txopen') ? 'open' : ''}><summary>내역 (${rows.length}건)</summary>
+    <div class="filters">${cards.map(c => `<button data-c="${esc(c)}" class="${c === txFilter ? 'on' : ''}">${esc(c)}</button>`).join('')}</div>
+    <div class="muted">합계 ${total.toLocaleString('ko-KR')} · 실적 인정 ${counted.toLocaleString('ko-KR')} · <span class="warn">빨간 행</span> = 실적 제외</div>
+    <div class="tbl"><table><thead><tr><th>날짜</th><th>카드</th><th>항목</th><th class="n">금액</th><th>실적</th><th class="hide-m">제외 사유</th><th class="n">예상 혜택</th><th class="hide-m">메모</th></tr></thead><tbody>
+    ${rows.map(t => `<tr class="${yes(t['실적 인정(O/X)']) ? '' : 'ex'}"><td>${esc(String(t['날짜']).slice(5))}</td><td>${esc(t['카드'])}</td><td>${esc(t['항목명'])}</td>
+      <td class="n">${fmt(t['금액'])}</td><td>${esc(t['실적 인정(O/X)'])}</td><td class="hide-m">${esc(t['제외 사유'])}</td>
+      <td class="n">${t['예상 혜택'] === '' ? '<span class="muted">-</span>' : fmt(t['예상 혜택'])}</td><td class="hide-m muted">${esc(t['메모'])}</td></tr>`).join('')}
+    </tbody></table></div></details></div>`;
+}
+
+function render(f, d){
+  app.innerHTML = `<div class="muted" style="margin:0 2px 10px">${esc(f.name)} · 시트 수정 ${new Date(f.modifiedTime).toLocaleString('ko-KR')}</div>` +
+    renderSummary(d.sum) + renderPicking(d.sum, d.tx) + renderCards(d.sum, d.ben, d.tx) + renderTx(d.tx);
+  const det = $('#txd');
+  det.addEventListener('toggle', () => det.open ? sessionStorage.setItem('cd_txopen', 1) : sessionStorage.removeItem('cd_txopen'));
+  det.querySelectorAll('.filters button').forEach(b => b.onclick = () => { txFilter = b.dataset.c; render(f, d); $('#txd').open = true; });
+}
+
+async function showMonth(id, force){
+  const f = files.find(x => x.id === id);
+  app.innerHTML = '<div class="center muted">시트를 읽는 중…</div>';
+  try {
+    if (force || !cache[id]) cache[id] = await loadSheet(id);
+    render(f, cache[id]);
+  } catch (e){ handleErr(e); }
+}
+
+function handleErr(e){
+  if (e.auth) return showLogin(e.message);
+  app.innerHTML = `<div class="err">${esc(e.message || e)}</div><div class="center"><button onclick="location.reload()">다시 시도</button></div>`;
+}
+
+async function start(){
+  try {
+    app.innerHTML = '<div class="center muted">드라이브에서 월별 파일을 찾는 중…</div>';
+    files = await listMonths();
+    $('#btnLogout').hidden = $('#btnRefresh').hidden = false;
+    if (!files.length){ app.innerHTML = '<div class="panel">폴더에 \'카드 실적·혜택 YYYY-MM\' 시트가 없어요.</div>'; return; }
+    const sel = $('#month'); sel.hidden = false;
+    sel.innerHTML = files.map(f => `<option value="${f.id}">${f.ym}</option>`).join('');
+    sel.onchange = () => showMonth(sel.value);
+    showMonth(files[0].id);
+  } catch (e){ handleErr(e); }
+}
+
+$('#btnRefresh').onclick = async () => {
+  const cur = $('#month').value;
+  try { files = await listMonths(); } catch (e){ return handleErr(e); }
+  const sel = $('#month');
+  sel.innerHTML = files.map(f => `<option value="${f.id}">${f.ym}</option>`).join('');
+  sel.value = files.some(f => f.id === cur) ? cur : (files[0] || {}).id;
+  if (sel.value) showMonth(sel.value, true);
+};
+$('#btnLogout').onclick = () => {
+  if (accessToken) google.accounts.oauth2.revoke(accessToken, () => {});
+  accessToken = null; tokenExpiry = 0; cache = {}; sessionStorage.removeItem('cd_tok');
+  showLogin('로그아웃했어요.');
+};
+
+window.onload = () => {
+  if (!CLIENT_ID) return showSetup();
+  const s = document.createElement('script');
+  s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
+  s.onload = () => {
+    initGis();
+    try { const t = JSON.parse(sessionStorage.getItem('cd_tok') || 'null'); if (t && Date.now() < t.e){ accessToken = t.t; tokenExpiry = t.e; return start(); } } catch(_){}
+    showLogin();
+  };
+  s.onerror = () => showLogin('구글 로그인 스크립트를 불러오지 못했어요. 네트워크를 확인해 주세요.');
+  document.head.appendChild(s);
+};
+</script>
+</body>
+</html>
